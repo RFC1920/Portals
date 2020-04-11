@@ -1,4 +1,4 @@
-﻿//#define DEBUG
+﻿#define DEBUG
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -11,7 +11,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.0.7", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.0.8", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -363,6 +363,32 @@ namespace Oxide.Plugins
                 {
                     if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
                     {
+#if DEBUG
+                        Puts("This is a portal spinner");
+#endif
+                        return false;
+                    }
+                }
+                catch {}
+            }
+
+            return null;
+        }
+
+        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo hitInfo)
+        {
+            if(entity == null || hitInfo == null) return null;
+            if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
+
+            foreach(PortalInfo p in portals)
+            {
+                try
+                {
+                    if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
+                    {
+#if DEBUG
+                        Puts("This is a portal spinner");
+#endif
                         return false;
                     }
                 }
