@@ -11,7 +11,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.0.6", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.0.7", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -25,6 +25,8 @@ namespace Oxide.Plugins
         private bool deploySpinner = true;
         private bool defaultTwoWay = false;
         private bool nameOnWheel = true;
+        private bool spinEntrance = true;
+        private bool spinExit = true;
         private float teleTimer;
 
         [PluginReference]
@@ -42,12 +44,18 @@ namespace Oxide.Plugins
                 if(portal.info.CanUse(player))
                 {
                     PortalPoint otherPoint = portal.point.PointType == PortalPointType.Primary ? portal.info.Secondary : portal.info.Primary;
-
                     Instance.Teleport(player, otherPoint.Location.Vector3);
+
+                    if(portal.point.Wheel && Instance.spinEntrance)
+                    {
+                        (portal.point.Wheel as SpinnerWheel).velocity += Oxide.Core.Random.Range(2f, 4f);
+                    }
+                    if(otherPoint.Wheel && Instance.spinExit)
+                    {
+                        (otherPoint.Wheel as SpinnerWheel).velocity += Oxide.Core.Random.Range(2f, 4f);
+                    }
+
                     Interface.CallHook("OnPortalUsed", player, JObject.FromObject(portal.info), JObject.FromObject(portal.point));
-                    //if(portal.point.Wheel)
-                    //portal.point.Wheel.ClientRPC<int>(null, "RPC_Spin", -1275292189);
-                    //(portal.point.Wheel as SpinnerWheel).velocity += Oxide.Core.Random.Range(4f, 7f);
                 }
             }
         }
@@ -63,6 +71,13 @@ namespace Oxide.Plugins
 
                 PortalEntity portal = p.GameObject.AddComponent<PortalEntity>();
 #if DEBUG
+                Interface.Oxide.LogWarning($"Creating portal object!");
+#endif
+                p.GameObject.transform.position = p.Location.Vector3;
+
+                portal.info = info;
+                portal.point = p;
+#if DEBUG
                 Interface.Oxide.LogWarning($"Creating portal sphere!");
 #endif
                 p.Sphere = GameManager.server.CreateEntity("assets/prefabs/visualization/sphere.prefab", p.Location.Vector3, new Quaternion(), true).GetComponent<SphereEntity>();
@@ -76,7 +91,6 @@ namespace Oxide.Plugins
                     Interface.Oxide.LogWarning($"Creating portal wheel!");
 #endif
                     p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3, new Quaternion(), true);
-                    Interface.Oxide.LogWarning($"nameOnWheel: {Instance.nameOnWheel.ToString()}");
                     p.Wheel.Spawn();
                     p.wheelid = p.Wheel.net.ID;
 
@@ -89,13 +103,6 @@ namespace Oxide.Plugins
                         Instance.SignArtist?.Call("signText", null, p.Wheel, info.ID, fontsize, "00FF00", "000000");
                     }
                 }
-#if DEBUG
-                Interface.Oxide.LogWarning($"Creating portal object!");
-#endif
-                p.GameObject.transform.position = p.Location.Vector3;
-
-                portal.info = info;
-                portal.point = p;
             }
 
             public void OnTriggerExit(Collider coll)
@@ -195,8 +202,6 @@ namespace Oxide.Plugins
             public float TeleportationTime = Instance.teleTimer;
             public string RequiredPermission = "portals.use";
 
-//            private bool _created;
-
             private void Update()
             {
                 Primary.PointType = PortalPointType.Primary;
@@ -215,24 +220,24 @@ namespace Oxide.Plugins
 
                 PortalEntity.Create(this, Primary);
                 PortalEntity.Create(this, Secondary);
-
-//                _created = true;
             }
 
             public void Remove()
             {
-//                if(!_created) return;
+#if DEBUG
+                Interface.Oxide.LogWarning($"Removing portal {ID}");
+#endif
                 try
                 {
                     Primary.Sphere.Kill();
                     Secondary.Sphere.Kill();
                     Primary.Wheel.Kill();
                     Secondary.Wheel.Kill();
-
-                    GameObject.Destroy(Primary.GameObject);
-                    GameObject.Destroy(Secondary.GameObject);
-                 }
+                }
                 catch {}
+
+                GameObject.Destroy(Primary.GameObject);
+                GameObject.Destroy(Secondary.GameObject);
             }
 
             public bool CanUse(BasePlayer player) => Instance.permission.UserHasPermission(player.UserIDString, RequiredPermission);
@@ -308,7 +313,10 @@ namespace Oxide.Plugins
 
             foreach(BasePlayer player in BasePlayer.activePlayerList)
             {
-                OnPlayerConnected(player);
+                if(!player.gameObject.GetComponent<PortalPlayerHandler>())
+                {
+                    player.gameObject.AddComponent<PortalPlayerHandler>();
+                }
             }
         }
 
@@ -321,7 +329,10 @@ namespace Oxide.Plugins
 
             foreach(BasePlayer player in BasePlayer.activePlayerList)
             {
-                OnPlayerDisconnected(player, null);
+                if(player.gameObject.GetComponent<PortalPlayerHandler>())
+                {
+                    Component.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
+                }
             }
         }
 
@@ -348,10 +359,14 @@ namespace Oxide.Plugins
 
             foreach(PortalInfo p in portals)
             {
-                if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
+                try
                 {
-                    return false;
+                    if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
+                    {
+                        return false;
+                    }
                 }
+                catch {}
             }
 
             return null;
@@ -377,7 +392,7 @@ namespace Oxide.Plugins
                 { "PortalListEmpty", "There are no portals." },
                 { "PortalList", "Portals: {0}" },
                 { "seconds", "Seconds" },
-                { "syntax", "Syntax: /portal <pri|sec|remove|oneway|timer> <ID> <true/false> <value>" }
+                { "syntax", "Syntax: /portal <pri|sec|list|remove|oneway|timer> <ID> <true/false> <value>\n  You can use pri/primary/entrance/add/create, sec/secondary/exit, time/timer, 0/false 1/true., e.g.:\n\n  /portal list\n  /portal pri portal1\n  /portal time portal1 4\n  /portal oneway portal1 1\n  /portal oneway portal1 false\n  /portal remove portal1" }
             }, this);
         }
         #endregion
@@ -403,11 +418,9 @@ namespace Oxide.Plugins
                 case "entrance":
                 case "pri":
                 case "primary":
-                    if(args.Length != 2)
-                    {
-                        Message(iplayer, "syntax");
-                        return;
-                    }
+                case "add":
+                case "create":
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
@@ -427,11 +440,7 @@ namespace Oxide.Plugins
                 case "exit":
                 case "sec":
                 case "secondary":
-                    if(args.Length != 2)
-                    {
-                        Message(iplayer, "syntax");
-                        return;
-                    }
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
@@ -449,20 +458,13 @@ namespace Oxide.Plugins
                     Message(iplayer, "PortalSecondarySet", args[1]);
                     break;
                 case "remove":
-                    if(args.Length != 2)
-                    {
-                        Message(iplayer, "syntax");
-                        return;
-                    }
+                case "delete":
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
 
-                    if(portal == null)
-                    {
-                        Message(iplayer, "PortalDoesNotExist", args[1]);
-                        return;
-                    }
+                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
 
                     portal.Remove();
                     portals.Remove(portal);
@@ -472,11 +474,7 @@ namespace Oxide.Plugins
                     break;
                 case "timer":
                 case "time":
-                    if(args.Length != 3)
-                    {
-                        Message(iplayer, "syntax");
-                        return;
-                    }
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
@@ -487,18 +485,14 @@ namespace Oxide.Plugins
                     SaveData(portals);
                     break;
                 case "oneway":
-                    if(args.Length != 3)
-                    {
-                        Message(iplayer, "syntax");
-                        return;
-                    }
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
                     portal.OneWay = GetBoolValue(args[2]);
                     portal.ReCreate();
 
-                    Message(iplayer, "PortalOneWaySet", args[1], args[2]);
+                    Message(iplayer, "PortalOneWaySet", ID, args[2]);
                     SaveData(portals);
                     break;
                 case "list":
@@ -604,11 +598,9 @@ namespace Oxide.Plugins
             }
         }
 
-        private string DataFileName => Title.Replace(" ", string.Empty);
+        private void LoadData<T>(out T data, string filename = null) => data = Interface.Oxide.DataFileSystem.ReadObject<T>(filename == null ? Name : $"{Name}/{filename}");
 
-        private void LoadData<T>(out T data, string filename = null) => data = Interface.Oxide.DataFileSystem.ReadObject<T>(filename == null ? DataFileName : $"{DataFileName}/{filename}");
-
-        private void SaveData<T>(T data, string filename = null) => Interface.Oxide.DataFileSystem.WriteObject(filename == null ? DataFileName : $"{DataFileName}/{filename}", data, true);
+        private void SaveData<T>(T data, string filename = null) => Interface.Oxide.DataFileSystem.WriteObject(filename == null ? Name : $"{Name}/{filename}", data, true);
         #endregion
 
         #region Message Helper
@@ -641,6 +633,8 @@ namespace Oxide.Plugins
 #endif
             deploySpinner = true;
             nameOnWheel = true;
+            spinEntrance = true;
+            spinExit = true;
             defaultTwoWay = false;
             teleTimer = 5f;
 
@@ -650,12 +644,6 @@ namespace Oxide.Plugins
         private void LoadVariables()
         {
             LoadConfigVariables();
-#if DEBUG
-            Puts($"deploySpinner {deploySpinner.ToString()}");
-            Puts($"nameOnWheel   {nameOnWheel.ToString()}");
-            Puts($"defaultTwoWay {defaultTwoWay.ToString()}");
-            Puts($"teleTimer     {teleTimer.ToString()}");
-#endif
             SaveConfig();
         }
 
@@ -663,6 +651,8 @@ namespace Oxide.Plugins
         {
             CheckCfg<bool>("Deploy spinner at portal points", ref deploySpinner);
             CheckCfg<bool>("Write portal name on spinners", ref nameOnWheel);
+            CheckCfg<bool>("Spin entrance wheel on teleport", ref spinEntrance);
+            CheckCfg<bool>("Spin exit wheel on teleport", ref spinExit);
             CheckCfg<bool>("Set two-way portals by default", ref defaultTwoWay);
             CheckCfgFloat("Portal countdown in seconds", ref teleTimer);
         }
