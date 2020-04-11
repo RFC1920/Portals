@@ -1,4 +1,4 @@
-﻿#define DEBUG
+﻿//#define DEBUG
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -8,10 +8,11 @@ using Oxide.Core.Plugins;
 using Oxide.Core.Configuration;
 using System;
 using Oxide.Core.Libraries.Covalence;
+using Facepunch.Extend;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.0.8", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.0.9", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -154,16 +155,8 @@ namespace Oxide.Plugins
 
             public void UpdateCollider()
             {
-                BoxCollider coll;
-
-                if(gameObject.GetComponent<BoxCollider>())
-                {
-                    coll = gameObject.GetComponent<BoxCollider>();
-                }
-                else
-                {
-                    coll = gameObject.AddComponent<BoxCollider>();
-                }
+                var coll = gameObject?.transform?.GetOrAddComponent<BoxCollider>(); // FP.Extend
+                if(coll == null) return;
 
                 coll.size = new Vector3(1, 2, 1);
                 coll.isTrigger = true;
