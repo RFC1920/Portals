@@ -3,6 +3,8 @@ Teleportation portals for Rust - this is a partial rewrite of the old Portals pl
 
 Portals gives you the opportunity to place teleportation portals in the Rust world.
 
+![](https://i.imgur.com/6OJHsGz.jpg)
+
 ## How to use
 
   - Go to the place where the entrance should be.
