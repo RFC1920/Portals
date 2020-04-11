@@ -1,15 +1,18 @@
 # Portals
-Teleportation portals for Rust
+Teleportation portals for Rust - this is a partial rewrite of the old Portals plugin by LaserHydra.
 
-Portals gives you the opportunity to place portals in your world.
+Portals gives you the opportunity to place teleportation portals in the Rust world.
 
 ## How to use
 
-  - go to the place where the entrance should be
-  - write /portal entrance portal1 (portal1 is an example name for aportal)
-  - go to the place where the exit should be
-  - write /portal exit portal1
-  - open the Datafile and change other details of the Portal, for example the radius, in which it teleports people.
+  - Go to the place where the entrance should be.
+  - Type /portal entrance portal1 (portal1 is an example name for a portal).
+  - Go to the place where the exit should be.
+  - Type /portal exit portal1
+
+Portals can be unidirectional or bidirectional.  See below.
+
+By default, a spinner wheel will be placed at the entrance and exit.  If you have SignArtist installed, it can also write the portal name on the wheel.  See Configuration below.
 
 ## Permissions
 This plugin uses Oxide's permission system. To assign a permission, use oxide.grant <user or group> <name or steam id> <permission>. To remove a permission, use oxide.revoke <user or group> <name or steam id> <permission>.
@@ -17,12 +20,37 @@ This plugin uses Oxide's permission system. To assign a permission, use oxide.gr
    - portals.admin - Required for /portal command
    - portals.use - Standard permission for using portals (can be customized per portal in oxide/data/Portals.json)
 
-## Chat Commands
+## Commands
+
+Commands can be used in chat or console.
 
    - /portal entrance <name> - Set the entrance to a portal
+     - You can substitute pri|primary|add|create for entrance
+
    - /portal exit <name> - Set the exit for a portal
+     - You can substitute sec|secondary for exit
+
+   - /portal timer <NAME> <numberofseconds>
+     - You can substitute time for timer
+
    - /portal remove <name> - Remove a portal
+
+   - /portal oneway <NAME> <truefalse>
+
    - /portal list - List existing portals
+
+## Configuration
+
+```json
+{
+  "Set two-way portals by default": true,
+  "Portal countdown in seconds": 5.0,
+  "Deploy spinner at portal points": true,
+  "Write portal name on spinners": true
+  "Spin entrance wheel on teleport": false,
+  "Spin exit wheel on teleport": true,
+}
+```
 
 ## Stored Data
 
