@@ -1,4 +1,4 @@
-﻿//#define DEBUG
+//#define DEBUG
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -12,7 +12,7 @@ using Facepunch.Extend;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.0.9", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.0", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -26,8 +26,11 @@ namespace Oxide.Plugins
         private bool deploySpinner = true;
         private bool defaultTwoWay = false;
         private bool nameOnWheel = true;
+        private string bgColor = "000000";
+        private string textColor = "00FF00";
         private bool spinEntrance = true;
         private bool spinExit = true;
+        private bool unLoading = false;
         private float teleTimer;
 
         [PluginReference]
@@ -91,17 +94,18 @@ namespace Oxide.Plugins
 #if DEBUG
                     Interface.Oxide.LogWarning($"Creating portal wheel!");
 #endif
-                    p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3, new Quaternion(), true);
+                    p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3 + new Vector3(0, 0.02f, 0), new Quaternion(), true);
                     p.Wheel.Spawn();
-                    p.wheelid = p.Wheel.net.ID;
+                    p.Wheel.SetFlag(BaseEntity.Flags.Busy, true);
+                    p.Wheel.SetFlag(BaseEntity.Flags.Reserved3, true);
 
                     if(Instance.nameOnWheel)
                     {
 #if DEBUG
                         Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
 #endif
-                        int fontsize = Convert.ToInt32(Math.Floor(300f / info.ID.Length));
-                        Instance.SignArtist?.Call("signText", null, p.Wheel, info.ID, fontsize, "00FF00", "000000");
+                        int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
+                        Instance.SignArtist?.Call("Silt", p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
                     }
                 }
             }
@@ -155,12 +159,17 @@ namespace Oxide.Plugins
 
             public void UpdateCollider()
             {
-                var coll = gameObject?.transform?.GetOrAddComponent<BoxCollider>(); // FP.Extend
-                if(coll == null) return;
+//                var coll = gameObject?.transform?.GetOrAddComponent<BoxCollider>(); // FP.Extend
+//                if(coll == null) return;
+//
+//                coll.size = new Vector3(1, 2, 1);
+//                coll.isTrigger = true;
+//                coll.enabled = true;
 
-                coll.size = new Vector3(1, 2, 1);
+                var coll = gameObject?.transform?.GetOrAddComponent<SphereCollider>();
+                if(coll == null) return;
                 coll.isTrigger = true;
-                coll.enabled = true;
+                coll.radius = 0.5f;
             }
 
             public void Awake()
@@ -222,12 +231,13 @@ namespace Oxide.Plugins
 #endif
                 try
                 {
-                    Primary.Sphere.Kill();
-                    Secondary.Sphere.Kill();
                     Primary.Wheel.Kill();
                     Secondary.Wheel.Kill();
                 }
                 catch {}
+
+                Primary.Sphere.Kill();
+                Secondary.Sphere.Kill();
 
                 GameObject.Destroy(Primary.GameObject);
                 GameObject.Destroy(Secondary.GameObject);
@@ -254,7 +264,6 @@ namespace Oxide.Plugins
             internal GameObject GameObject;
             internal SphereEntity Sphere;
             internal BaseEntity Wheel;
-            public ulong wheelid;
         }
 
         private class Location
@@ -315,6 +324,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
+            unLoading = true;
             foreach(var portal in portals)
             {
                 portal.Remove();
@@ -354,7 +364,7 @@ namespace Oxide.Plugins
             {
                 try
                 {
-                    if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
+                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
 #if DEBUG
                         Puts("This is a portal spinner");
@@ -372,12 +382,13 @@ namespace Oxide.Plugins
         {
             if(entity == null || hitInfo == null) return null;
             if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
+            if(unLoading) return null;
 
             foreach(PortalInfo p in portals)
             {
                 try
                 {
-                    if(p.Primary.wheelid == entity.net.ID || p.Secondary.wheelid == entity.net.ID)
+                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
 #if DEBUG
                         Puts("This is a portal spinner");
@@ -411,6 +422,8 @@ namespace Oxide.Plugins
                 { "PortalListEmpty", "There are no portals." },
                 { "PortalList", "Portals: {0}" },
                 { "seconds", "Seconds" },
+                { "pri", "(a)" },
+                { "sec", "(b)" },
                 { "syntax", "Syntax: /portal <pri|sec|list|remove|oneway|timer> <ID> <true/false> <value>\n  You can use pri/primary/entrance/add/create, sec/secondary/exit, time/timer, 0/false 1/true., e.g.:\n\n  /portal list\n  /portal pri portal1\n  /portal time portal1 4\n  /portal oneway portal1 1\n  /portal oneway portal1 false\n  /portal remove portal1" }
             }, this);
         }
@@ -423,11 +436,7 @@ namespace Oxide.Plugins
             if(!iplayer.HasPermission(permPortalsAdmin)) { Message(iplayer, "NoPermission"); return; }
             var player = iplayer.Object as BasePlayer;
 
-            if(args.Length == 0)
-            {
-                Message(iplayer, "syntax");
-                return;
-            }
+            if(args.Length == 0) Message(iplayer, "syntax"); return;
 
             string ID;
             PortalInfo portal;
@@ -652,6 +661,8 @@ namespace Oxide.Plugins
 #endif
             deploySpinner = true;
             nameOnWheel = true;
+            bgColor = "000000";
+            textColor = "00FF00";
             spinEntrance = true;
             spinExit = true;
             defaultTwoWay = false;
@@ -670,6 +681,8 @@ namespace Oxide.Plugins
         {
             CheckCfg<bool>("Deploy spinner at portal points", ref deploySpinner);
             CheckCfg<bool>("Write portal name on spinners", ref nameOnWheel);
+            CheckCfg<string>("Spinner Background Color", ref bgColor);
+            CheckCfg<string>("Spinner Text Color", ref textColor);
             CheckCfg<bool>("Spin entrance wheel on teleport", ref spinEntrance);
             CheckCfg<bool>("Spin exit wheel on teleport", ref spinExit);
             CheckCfg<bool>("Set two-way portals by default", ref defaultTwoWay);

@@ -49,9 +49,12 @@ Commands can be used in chat or console.
   "Portal countdown in seconds": 5.0,
   "Deploy spinner at portal points": true,
   "Write portal name on spinners": true
+  "Spinner Background Color": "000000",
+  "Spinner Text Color": "FFFF00",
   "Spin entrance wheel on teleport": false,
   "Spin exit wheel on teleport": true,
 }
+
 ```
 
 ## Stored Data
