@@ -1,18 +1,18 @@
 //#define DEBUG
+using System;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using System.Linq;
+using Facepunch.Extend;
 using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Core.Configuration;
-using System;
 using Oxide.Core.Libraries.Covalence;
-using Facepunch.Extend;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.0", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.2", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -30,11 +30,312 @@ namespace Oxide.Plugins
         private string textColor = "00FF00";
         private bool spinEntrance = true;
         private bool spinExit = true;
-        private bool unLoading = false;
         private float teleTimer;
 
         [PluginReference]
         private Plugin SignArtist;
+
+        public bool initialized = false;
+        #endregion
+
+        #region Oxide Hooks
+        void OnNewSave(string strFilename)
+        {
+            Puts("Map change - wiping portal locations");
+            foreach(var portal in portals)
+            {
+                portal.Primary.Location.Vector3 = new Vector3();
+                portal.Secondary.Location.Vector3 = new Vector3();
+            }
+            SaveData();
+        }
+
+        private void OnServerInitialized()
+        {
+            Instance = this;
+
+            LoadVariables();
+            LoadData();
+            LoadMessages();
+
+            AddCovalenceCommand("portal", "cmdPortal");
+
+            permission.RegisterPermission(permPortalsUse, this);
+            permission.RegisterPermission(permPortalsAdmin, this);
+
+            foreach(PortalInfo portal in portals)
+            {
+                if(!permission.PermissionExists(portal.RequiredPermission, this))
+                {
+                    permission.RegisterPermission(portal.RequiredPermission, this);
+                }
+                portal.Create();
+            }
+            initialized = true;
+        }
+
+        private void Unload()
+        {
+            foreach(var portal in portals)
+            {
+                portal.Remove();
+            }
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if(player.gameObject.GetComponent<PortalPlayerHandler>())
+            {
+                Component.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
+            }
+        }
+
+        private object CanPickupEntity(BasePlayer player, BaseEntity entity)
+        {
+            if(entity == null || player == null) return null;
+            if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
+
+            foreach(PortalInfo p in portals)
+            {
+                try
+                {
+                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
+                    {
+#if DEBUG
+                        Puts("This is a portal spinner");
+#endif
+                        return false;
+                    }
+                }
+                catch {}
+            }
+
+            return null;
+        }
+
+        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo hitInfo)
+        {
+            if(entity == null || hitInfo == null) return null;
+            if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
+
+            foreach(PortalInfo p in portals)
+            {
+                try
+                {
+                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
+                    {
+#if DEBUG
+                        Puts("This is a portal spinner");
+#endif
+                        return false;
+                    }
+                }
+                catch {}
+            }
+
+            return null;
+        }
+        #endregion
+
+        #region Loading
+        private void LoadMessages()
+        {
+            lang.RegisterMessages(new Dictionary<string, string>
+            {
+                { "NoPermission", "You don't have permission to use this command." },
+                { "NoPermissionPortal", "You don't have permission to use this portal." },
+                { "PortalDoesNotExist", "Portal {0} does not exist." },
+                { "PortalPrimarySet", "Primary for portal {0} was set at your current location." },
+                { "PortalSecondarySet", "Secondary for portal {0} was set at your current location." },
+                { "PortalOneWaySet", "OneWay for portal {0} was set to {1}." },
+                { "PortalPermSet", "Permission for portal {0} was set to {1}." },
+                { "PortalTimerSet", "Timer for portal {0} was set to {1}." },
+                { "PortalRemoved", "Portal {0} was removed." },
+                { "PortalIncomplete", "Portal {0} missing one end." },
+                { "Teleporting", "You have entered portal {0}. You will be teleported in {1} seconds." },
+                { "TeleportationCancelled", "Teleportation cancelled as you left the portal before the teleportation process finished." },
+                { "PortalListEmpty", "There are no portals." },
+                { "PortalList", "Portals: {0}" },
+                { "seconds", "Seconds" },
+                { "perm", "Perm: " },
+                { "syntax", "Syntax: /portal <entrance|exit|list|remove|oneway|time|perm> <ID> <true/false> <value>\n  e.g.:\n\n  /portal list\n  /portal entrance portal1\n  /portal time portal1 4\n  /portal oneway portal1 1\n  /portal oneway portal1 false\n  /portal remove portal1\n  /portal perm portal2 special" },
+                { "config", "Configuration:{0}" },
+                { "deploySpinner", "Deploy spinner at portal points (deploySpinner): {0}" },
+                { "nameOnWheel", "Write portal name on spinners (nameOnWheel): {0}" },
+                { "bgColor", "Spinner Background Color (bgColor): {0}" },
+                { "textColor", "Spinner Text Color (textColor): {0}" },
+                { "spinEntrance", "Spin entrance wheel on teleport (spinEntrance): {0}" },
+                { "spinExit", "Spin exit wheel on teleport (spinExit): {0}" },
+                { "defaultTwoWay", "Set two-way portals by default (defaultTwoWay): {0}" },
+                { "teleTimer", "Portal countdown in seconds (teleTimer): {0}" }
+            }, this);
+        }
+        #endregion
+
+        #region Commands
+        [Command("portal")]
+        private void cmdPortal(IPlayer iplayer, string command, string[] args)
+        {
+            if(!iplayer.HasPermission(permPortalsAdmin)) { Message(iplayer, "NoPermission"); return; }
+            if(args.Length == 0) { Message(iplayer, "syntax"); return; }
+
+            var player = iplayer.Object as BasePlayer;
+            string ID;
+            PortalInfo portal;
+
+            switch(args[0])
+            {
+                case "entrance":
+                case "pri":
+                case "primary":
+                case "add":
+                case "create":
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+
+                    if(portal == null)
+                    {
+                        portal = new PortalInfo(ID);
+                        portals.Add(portal);
+                    }
+
+                    portal.Primary.Location.Vector3 = player.transform.position;
+                    portal.OneWay = !defaultTwoWay;
+                    portal.ReCreate();
+
+                    SaveData();
+                    Message(iplayer, "PortalPrimarySet", args[1]);
+                    break;
+                case "exit":
+                case "sec":
+                case "secondary":
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+
+                    if(portal == null)
+                    {
+                        portal = new PortalInfo(ID);
+                        portals.Add(portal);
+                    }
+
+                    portal.Secondary.Location.Vector3 = player.transform.position;
+                    portal.ReCreate();
+
+                    SaveData();
+                    Message(iplayer, "PortalSecondarySet", args[1]);
+                    break;
+                case "remove":
+                case "delete":
+                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+
+                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
+
+                    portal.Remove();
+                    portals.Remove(portal);
+
+                    SaveData();
+                    Message(iplayer, "PortalRemoved", args[1]);
+                    break;
+                case "timer":
+                case "time":
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+                    portal.TeleportationTime = float.Parse(args[2]);
+                    portal.ReCreate();
+
+                    SaveData();
+                    Message(iplayer, "PortalTimerSet", args[1], args[2]);
+                    break;
+                case "oneway":
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+                    portal.OneWay = GetBoolValue(args[2]);
+                    portal.ReCreate();
+
+                    SaveData();
+                    Message(iplayer, "PortalOneWaySet", ID, args[2]);
+                    break;
+                case "perm":
+                case "permission":
+                    Puts($"Args length = {args.Length.ToString()}");
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+                    portal.RequiredPermission = "portals." + args[2];
+                    if(!permission.PermissionExists(portal.RequiredPermission, this))
+                    {
+                        permission.RegisterPermission(portal.RequiredPermission, this);
+                    }
+                    portal.ReCreate();
+
+                    SaveData();
+                    Message(iplayer, "PortalPermSet", ID, "portals." + args[2]);
+                    break;
+                case "list":
+                    if(args.Length != 1) { Message(iplayer, "syntax"); return; }
+                    string portalList = null;
+                    if(portals.Count == 0)
+                    {
+                        portalList = Lang("PortalListEmpty");
+                    }
+                    else
+                    {
+                        foreach(PortalInfo p in portals)
+                        {
+                            var pentrance = p.Primary.Location.Vector3.ToString();
+                            var pexit = p.Secondary.Location.Vector3.ToString();
+                            var ptime = p.TeleportationTime.ToString() + " " + Lang("seconds");
+                            var pperm = Lang("perm") + p.RequiredPermission.Replace("portals.", "");
+                            portalList += $"\n<color=#333> - </color><color=#C4FF00>{p.ID} {pentrance} {pexit} [{ptime}, {pperm}]</color>";
+                            if(p.OneWay) portalList += "<color=#333> (oneway) </color>";
+                            portalList += "\n";
+                        }
+                    }
+                    Message(iplayer, "PortalList", portalList);
+                    break;
+//                case "config":
+//                    if(args.Length == 1)
+//                    {
+//                        //display config
+//                        string showconfig  = "\n  " + Lang("cDeploySpinner", null, deploySpinner.ToString());
+//                        showconfig += "\n  " + Lang("cNameOnWheel", null, nameOnWheel.ToString());
+//                        showconfig += "\n  " + Lang("cBgColor", null, bgColor);
+//                        showconfig += "\n  " + Lang("cTextColor", null, textColor);
+//                        showconfig += "\n  " + Lang("cSpinEntrance", null, spinEntrance.ToString());
+//                        showconfig += "\n  " + Lang("cSpinExit", null, spinExit.ToString());
+//                        showconfig += "\n  " + Lang("cDefaultTwoWay", null, defaultTwoWay.ToString());
+//                        showconfig += "\n  " + Lang("cTeleTimer", null, teleTimer.ToString());
+//                        Message(iplayer, "config", showconfig);
+//                    }
+//                    else if(args.Length != 3)
+//                    {
+//                        Message(iplayer, "syntax");
+//                        return;
+//                    }
+//                    else
+//                    {
+//                        // /portal config teleTimer 7
+//                    }
+//                    break;
+                default:
+                    Message(iplayer, "syntax");
+                    break;
+            }
+        }
+
+//        void SignCall(string name, BaseEntity wheel, string ID, int fontsize) => SignArtist?.Call(name, wheel, ID, fontsize, textColor, bgColor);
         #endregion
 
         #region MonoBehaviour Classes
@@ -105,13 +406,17 @@ namespace Oxide.Plugins
                         Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
 #endif
                         int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
-                        Instance.SignArtist?.Call("Silt", p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
+                        Instance.SignArtist?.Call("signText", null, p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
+//                        Instance.SignArtist?.Call("Silt", p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
+//                        Instance.SignCall("SilSiltt", p.Wheel, info.ID, fontsize);
                     }
                 }
             }
 
             public void OnTriggerExit(Collider coll)
             {
+                if(!Instance.initialized) return;
+
                 GameObject go = coll.gameObject;
 
                 if(go.GetComponent<BasePlayer>())
@@ -128,18 +433,25 @@ namespace Oxide.Plugins
 
             public void OnTriggerEnter(Collider coll)
             {
+                if(!Instance.initialized) return;
+
                 GameObject go = coll.gameObject;
+                var player = coll.ToBaseEntity() as BasePlayer;
 
-                if(go.GetComponent<BasePlayer>())
+                if(player != null)
                 {
-                    PortalPlayerHandler handler = go.GetComponent<PortalPlayerHandler>();
+                    PortalPlayerHandler handler = player?.gameObject?.GetComponent<PortalPlayerHandler>();
+                    if(handler == null)
+                    {
+                        handler = player.gameObject.AddComponent<PortalPlayerHandler>();
+                    }
 
-                    if(handler)
+                    if(player != null && handler != null)
                     {
                         if(point.PointType == PortalPointType.Secondary && info.OneWay) return;
                         if(info.Secondary.Location.Vector3 == Vector3.zero || info.Primary.Location.Vector3 == Vector3.zero)
                         {
-                            Instance.Message(handler.player.IPlayer, "PortalIncomplete", info.ID);
+                            if(player.IPlayer != null) Instance.Message(player.IPlayer, "PortalIncomplete", info.ID);
                             return;
                         }
 
@@ -147,11 +459,11 @@ namespace Oxide.Plugins
 
                         if(!info.CanUse(handler.player))
                         {
-                            Instance.Message(handler.player.IPlayer, "NoPermissionPortal");
+                            if(player.IPlayer != null) Instance.Message(player.IPlayer, "NoPermissionPortal");
                             return;
                         }
 
-                        Instance.Message(handler.player.IPlayer, "Teleporting", info.ID, info.TeleportationTime.ToString());
+                        if(player.IPlayer != null) Instance.Message(player.IPlayer, "Teleporting", info.ID, info.TeleportationTime.ToString());
                         handler.timer = Instance.timer.Once(info.TeleportationTime, () => handler.Teleport(this));
                     }
                 }
@@ -159,17 +471,12 @@ namespace Oxide.Plugins
 
             public void UpdateCollider()
             {
-//                var coll = gameObject?.transform?.GetOrAddComponent<BoxCollider>(); // FP.Extend
-//                if(coll == null) return;
-//
-//                coll.size = new Vector3(1, 2, 1);
-//                coll.isTrigger = true;
-//                coll.enabled = true;
-
-                var coll = gameObject?.transform?.GetOrAddComponent<SphereCollider>();
+                var coll = gameObject?.transform?.GetOrAddComponent<BoxCollider>(); // FP.Extend
                 if(coll == null) return;
+
+                coll.size = new Vector3(1, 2, 1);
                 coll.isTrigger = true;
-                coll.radius = 0.5f;
+                coll.enabled = true;
             }
 
             public void Awake()
@@ -200,9 +507,11 @@ namespace Oxide.Plugins
             public string ID;
             public readonly PortalPoint Primary = new PortalPoint { PointType = PortalPointType.Primary };
             public readonly PortalPoint Secondary = new PortalPoint { PointType = PortalPointType.Secondary };
-            public bool OneWay = !Instance.defaultTwoWay;
+            public bool OneWay = true;
             public float TeleportationTime = Instance.teleTimer;
             public string RequiredPermission = "portals.use";
+
+            private bool _created;
 
             private void Update()
             {
@@ -219,13 +528,20 @@ namespace Oxide.Plugins
             public void Create()
             {
                 Update();
-
+#if DEBUG
+                Interface.Oxide.LogWarning($"Creating portal primary");
+#endif
                 PortalEntity.Create(this, Primary);
+#if DEBUG
+                Interface.Oxide.LogWarning($"Creating portal secondary");
+#endif
                 PortalEntity.Create(this, Secondary);
+                _created = true;
             }
 
             public void Remove()
             {
+                if(!_created) return;
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
@@ -282,279 +598,6 @@ namespace Oxide.Plugins
         }
         #endregion
 
-        #region Oxide Hooks
-        void OnNewSave(string strFilename)
-        {
-            Puts("Map change - wiping portal locations");
-            foreach(var portal in portals)
-            {
-                portal.Primary.Location.Vector3 = new Vector3();
-                portal.Secondary.Location.Vector3 = new Vector3();
-            }
-            SaveData(portals);
-        }
-
-        private void Loaded()
-        {
-            Instance = this;
-
-            AddCovalenceCommand("portal", "cmdPortal");
-
-            RegisterPerm("admin");
-            RegisterPerm("use");
-
-            LoadVariables();
-            LoadData(out portals);
-            LoadMessages();
-
-            foreach(PortalInfo portal in portals)
-            {
-                permission.RegisterPermission(portal.RequiredPermission, this);
-                portal.Create();
-            }
-
-            foreach(BasePlayer player in BasePlayer.activePlayerList)
-            {
-                if(!player.gameObject.GetComponent<PortalPlayerHandler>())
-                {
-                    player.gameObject.AddComponent<PortalPlayerHandler>();
-                }
-            }
-        }
-
-        private void Unload()
-        {
-            unLoading = true;
-            foreach(var portal in portals)
-            {
-                portal.Remove();
-            }
-
-            foreach(BasePlayer player in BasePlayer.activePlayerList)
-            {
-                if(player.gameObject.GetComponent<PortalPlayerHandler>())
-                {
-                    Component.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
-                }
-            }
-        }
-
-        private void OnPlayerConnected(BasePlayer player)
-        {
-            if(!player.gameObject.GetComponent<PortalPlayerHandler>())
-            {
-                player.gameObject.AddComponent<PortalPlayerHandler>();
-            }
-        }
-
-        private void OnPlayerDisconnected(BasePlayer player, string reason)
-        {
-            if(player.gameObject.GetComponent<PortalPlayerHandler>())
-            {
-                Component.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
-            }
-        }
-
-        private object CanPickupEntity(BasePlayer player, BaseEntity entity)
-        {
-            if(entity == null || player == null) return null;
-            if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
-
-            foreach(PortalInfo p in portals)
-            {
-                try
-                {
-                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
-                    {
-#if DEBUG
-                        Puts("This is a portal spinner");
-#endif
-                        return false;
-                    }
-                }
-                catch {}
-            }
-
-            return null;
-        }
-
-        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo hitInfo)
-        {
-            if(entity == null || hitInfo == null) return null;
-            if(entity.ShortPrefabName != "spinner.wheel.deployed") return null;
-            if(unLoading) return null;
-
-            foreach(PortalInfo p in portals)
-            {
-                try
-                {
-                    if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
-                    {
-#if DEBUG
-                        Puts("This is a portal spinner");
-#endif
-                        return false;
-                    }
-                }
-                catch {}
-            }
-
-            return null;
-        }
-        #endregion
-
-        #region Loading
-        private void LoadMessages()
-        {
-            lang.RegisterMessages(new Dictionary<string, string>
-            {
-                { "NoPermission", "You don't have permission to use this command." },
-                { "NoPermissionPortal", "You don't have permission to use this portal." },
-                { "PortalDoesNotExist", "Portal {0} does not exist." },
-                { "PortalPrimarySet", "Primary for portal {0} was set at your current location." },
-                { "PortalSecondarySet", "Secondary for portal {0} was set at your current location." },
-                { "PortalOneWaySet", "OneWay for portal {0} was set to {1}." },
-                { "PortalTimerSet", "Timer for portal {0} was set to {1}." },
-                { "PortalRemoved", "Portal {0} was removed." },
-                { "PortalIncomplete", "Portal {0} missing one end." },
-                { "Teleporting", "You have entered portal {0}. You will be teleported in {1} seconds." },
-                { "TeleportationCancelled", "Teleportation cancelled as you left the portal before the teleportation process finished." },
-                { "PortalListEmpty", "There are no portals." },
-                { "PortalList", "Portals: {0}" },
-                { "seconds", "Seconds" },
-                { "pri", "(a)" },
-                { "sec", "(b)" },
-                { "syntax", "Syntax: /portal <pri|sec|list|remove|oneway|timer> <ID> <true/false> <value>\n  You can use pri/primary/entrance/add/create, sec/secondary/exit, time/timer, 0/false 1/true., e.g.:\n\n  /portal list\n  /portal pri portal1\n  /portal time portal1 4\n  /portal oneway portal1 1\n  /portal oneway portal1 false\n  /portal remove portal1" }
-            }, this);
-        }
-        #endregion
-
-        #region Commands
-        [Command("portal")]
-        void cmdPortal(IPlayer iplayer, string command, string[] args)
-        {
-            if(!iplayer.HasPermission(permPortalsAdmin)) { Message(iplayer, "NoPermission"); return; }
-            var player = iplayer.Object as BasePlayer;
-
-            if(args.Length == 0)
-            {
-                Message(iplayer, "syntax");
-                return;
-            }
-
-            string ID;
-            PortalInfo portal;
-
-            switch(args[0])
-            {
-                case "entrance":
-                case "pri":
-                case "primary":
-                case "add":
-                case "create":
-                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
-
-                    ID = args[1];
-                    portal = PortalInfo.Find(ID);
-
-                    if(portal == null)
-                    {
-                        portal = new PortalInfo(ID);
-                        portals.Add(portal);
-                    }
-
-                    portal.Primary.Location.Vector3 = player.transform.position;
-                    portal.ReCreate();
-
-                    SaveData(portals);
-                    Message(iplayer, "PortalPrimarySet", args[1]);
-                    break;
-                case "exit":
-                case "sec":
-                case "secondary":
-                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
-
-                    ID = args[1];
-                    portal = PortalInfo.Find(ID);
-
-                    if(portal == null)
-                    {
-                        portal = new PortalInfo(ID);
-                        portals.Add(portal);
-                    }
-
-                    portal.Secondary.Location.Vector3 = player.transform.position;
-                    portal.ReCreate();
-
-                    SaveData(portals);
-                    Message(iplayer, "PortalSecondarySet", args[1]);
-                    break;
-                case "remove":
-                case "delete":
-                    if(args.Length != 2) { Message(iplayer, "syntax"); return; }
-
-                    ID = args[1];
-                    portal = PortalInfo.Find(ID);
-
-                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
-
-                    portal.Remove();
-                    portals.Remove(portal);
-
-                    SaveData(portals);
-                    Message(iplayer, "PortalRemoved", args[1]);
-                    break;
-                case "timer":
-                case "time":
-                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
-
-                    ID = args[1];
-                    portal = PortalInfo.Find(ID);
-                    portal.TeleportationTime = float.Parse(args[2]);
-                    portal.ReCreate();
-
-                    Message(iplayer, "PortalTimerSet", args[1], args[2]);
-                    SaveData(portals);
-                    break;
-                case "oneway":
-                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
-
-                    ID = args[1];
-                    portal = PortalInfo.Find(ID);
-                    portal.OneWay = GetBoolValue(args[2]);
-                    portal.ReCreate();
-
-                    Message(iplayer, "PortalOneWaySet", ID, args[2]);
-                    SaveData(portals);
-                    break;
-                case "list":
-                    string portalList = null;
-                    if(portals.Count == 0)
-                    {
-                        portalList = Lang("PortalListEmpty");
-                    }
-                    else
-                    {
-                        foreach(PortalInfo p in portals)
-                        {
-                            var pentrance = p.Primary.Location.Vector3.ToString();
-                            var pexit = p.Secondary.Location.Vector3.ToString();
-                            var ptime = p.TeleportationTime.ToString() + " " + Lang("seconds");
-                            portalList += $"\n<color=#333> - </color><color=#C4FF00>{p.ID} {pentrance} {pexit} [{ptime}]</color>";
-                            if(p.OneWay) portalList += "<color=#333> (oneway) </color>";
-                            portalList += "\n";
-                        }
-                    }
-                    Message(iplayer, "PortalList", portalList);
-                    break;
-                default:
-                    Message(iplayer, "syntax");
-                    break;
-            }
-        }
-        #endregion
-
-        #region Helper
         #region Teleportation Helper
         private void Teleport(BasePlayer player, Vector3 position)
         {
@@ -630,31 +673,20 @@ namespace Oxide.Plugins
             }
         }
 
-        private void LoadData<T>(out T data, string filename = null) => data = Interface.Oxide.DataFileSystem.ReadObject<T>(filename == null ? Name : $"{Name}/{filename}");
+        private void LoadData()
+        {
+            portals = Interface.Oxide.DataFileSystem.ReadObject<List<PortalInfo>>(Name);
+        }
 
-        private void SaveData<T>(T data, string filename = null) => Interface.Oxide.DataFileSystem.WriteObject(filename == null ? Name : $"{Name}/{filename}", data, true);
+        private void SaveData()
+        {
+            Interface.Oxide.DataFileSystem.WriteObject(Name, portals);
+        }
         #endregion
 
         #region Message Helper
         private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
         private void Message(IPlayer player, string key, params object[] args) => player.Reply(Lang(key, player.Id, args));
-        #endregion
-
-        #region Permission Helper
-        private void RegisterPerm(params string[] permArray)
-        {
-            string perm = string.Join(".", permArray);
-            permission.RegisterPermission($"{PermissionPrefix}.{perm}", this);
-        }
-
-        private bool HasPerm(object uid, params string[] permArray)
-        {
-            string perm = string.Join(".", permArray);
-            return permission.UserHasPermission(uid.ToString(), $"{PermissionPrefix}.{perm}");
-        }
-
-        private string PermissionPrefix => this.Title.Replace(" ", "").ToLower();
-        #endregion
         #endregion
 
         #region config
