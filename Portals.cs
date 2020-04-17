@@ -436,7 +436,11 @@ namespace Oxide.Plugins
             if(!iplayer.HasPermission(permPortalsAdmin)) { Message(iplayer, "NoPermission"); return; }
             var player = iplayer.Object as BasePlayer;
 
-            if(args.Length == 0) Message(iplayer, "syntax"); return;
+            if(args.Length == 0)
+            {
+                Message(iplayer, "syntax");
+                return;
+            }
 
             string ID;
             PortalInfo portal;
