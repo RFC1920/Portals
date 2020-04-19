@@ -16,6 +16,23 @@ Portals can be unidirectional or bidirectional.  See below.
 
 By default, a spinner wheel will be placed at the entrance and exit.  If you have SignArtist installed, it can also write the portal name on the wheel.  See Configuration below.
 
+## Recommendations
+
+It is recommended that you set the following configs for SignArtist to try to lessen the chance of spinners not being painted:
+
+```json
+{
+  "Time in seconds between download requests (0 to disable)": 0,
+  "Maximum concurrent downloads": 50,
+  ...
+}
+```
+
+There are additional configs for SignArtist, but what is above has impact on its use by Portals.
+
+   - On load, Portals will try to draw to every spinner within a few seconds at most.  This can exceed the default limits in SignArtist for "Time in seconds between...".
+   - If you have 5 portals, 10 spinners will need to be painted.  So, a limit of 10 might just allow Portals to finish its work.  Set this to allow all portals as well as any signs you may have actively using it.
+
 ## Permissions
 This plugin uses Oxide's permission system. To assign a permission, use oxide.grant <user or group> <name or steam id> <permission>. To remove a permission, use oxide.revoke <user or group> <name or steam id> <permission>.
 
