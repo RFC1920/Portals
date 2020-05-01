@@ -7,12 +7,11 @@ using System.Linq;
 using Facepunch.Extend;
 using Oxide.Core;
 using Oxide.Core.Plugins;
-using Oxide.Core.Configuration;
 using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.2", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.3", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -58,7 +57,7 @@ namespace Oxide.Plugins
             LoadData();
             LoadMessages();
 
-            AddCovalenceCommand("portal", "cmdPortal");
+            AddCovalenceCommand("portal", "CmdPortal");
 
             permission.RegisterPermission(permPortalsUse, this);
             permission.RegisterPermission(permPortalsAdmin, this);
@@ -74,12 +73,15 @@ namespace Oxide.Plugins
             initialized = true;
         }
 
+        private void OnServerShutdown() => Unload();
+
         private void Unload()
         {
-            foreach(var portal in portals)
+            foreach(PortalInfo portal in portals)
             {
                 portal.Remove();
             }
+			portals = null;
         }
 
         private void OnPlayerDisconnected(BasePlayer player, string reason)
@@ -97,7 +99,7 @@ namespace Oxide.Plugins
 
             foreach(PortalInfo p in portals)
             {
-                try
+                if(deploySpinner)
                 {
                     if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
@@ -107,7 +109,6 @@ namespace Oxide.Plugins
                         return false;
                     }
                 }
-                catch {}
             }
 
             return null;
@@ -120,7 +121,7 @@ namespace Oxide.Plugins
 
             foreach(PortalInfo p in portals)
             {
-                try
+                if(deploySpinner)
                 {
                     if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
@@ -130,7 +131,6 @@ namespace Oxide.Plugins
                         return false;
                     }
                 }
-                catch {}
             }
 
             return null;
@@ -174,7 +174,7 @@ namespace Oxide.Plugins
 
         #region Commands
         [Command("portal")]
-        private void cmdPortal(IPlayer iplayer, string command, string[] args)
+        private void CmdPortal(IPlayer iplayer, string command, string[] args)
         {
             if(!iplayer.HasPermission(permPortalsAdmin)) { Message(iplayer, "NoPermission"); return; }
             if(args.Length == 0) { Message(iplayer, "syntax"); return; }
@@ -249,22 +249,26 @@ namespace Oxide.Plugins
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
+                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
+
                     portal.TeleportationTime = float.Parse(args[2]);
                     portal.ReCreate();
-
                     SaveData();
                     Message(iplayer, "PortalTimerSet", args[1], args[2]);
+
                     break;
                 case "oneway":
                     if(args.Length != 3) { Message(iplayer, "syntax"); return; }
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
+                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
+
                     portal.OneWay = GetBoolValue(args[2]);
                     portal.ReCreate();
-
                     SaveData();
                     Message(iplayer, "PortalOneWaySet", ID, args[2]);
+
                     break;
                 case "perm":
                 case "permission":
@@ -273,15 +277,17 @@ namespace Oxide.Plugins
 
                     ID = args[1];
                     portal = PortalInfo.Find(ID);
+                    if (portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
+
                     portal.RequiredPermission = "portals." + args[2];
-                    if(!permission.PermissionExists(portal.RequiredPermission, this))
-                    {
-                        permission.RegisterPermission(portal.RequiredPermission, this);
+                    if (!permission.PermissionExists(portal.RequiredPermission, this))
+                        {
+                            permission.RegisterPermission(portal.RequiredPermission, this);
                     }
                     portal.ReCreate();
-
                     SaveData();
                     Message(iplayer, "PortalPermSet", ID, "portals." + args[2]);
+
                     break;
                 case "list":
                     if(args.Length != 1) { Message(iplayer, "syntax"); return; }
@@ -334,8 +340,6 @@ namespace Oxide.Plugins
                     break;
             }
         }
-
-//        void SignCall(string name, BaseEntity wheel, string ID, int fontsize) => SignArtist?.Call(name, wheel, ID, fontsize, textColor, bgColor);
         #endregion
 
         #region MonoBehaviour Classes
@@ -545,12 +549,14 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-                try
+//				if(Primary.Wheel is BaseEntity)
+                if(Instance.deploySpinner)
                 {
+                    Primary.Wheel.SetFlag(BaseEntity.Flags.Busy, false);
                     Primary.Wheel.Kill();
+                    Secondary.Wheel.SetFlag(BaseEntity.Flags.Busy, false);
                     Secondary.Wheel.Kill();
                 }
-                catch {}
 
                 Primary.Sphere.Kill();
                 Secondary.Sphere.Kill();
