@@ -11,7 +11,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.3", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.4", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -68,20 +68,19 @@ namespace Oxide.Plugins
                 {
                     permission.RegisterPermission(portal.RequiredPermission, this);
                 }
-                portal.Create();
+                portal.ReCreate();
             }
             initialized = true;
         }
 
-        private void OnServerShutdown() => Unload();
-
         private void Unload()
         {
+            SaveData();
             foreach(PortalInfo portal in portals)
             {
-                portal.Remove();
+                if(portal != null) portal.Remove();
             }
-			portals = null;
+            portals = null;
         }
 
         private void OnPlayerDisconnected(BasePlayer player, string reason)
@@ -549,7 +548,7 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-//				if(Primary.Wheel is BaseEntity)
+//                if(Primary.Wheel is BaseEntity)
                 if(Instance.deploySpinner)
                 {
                     Primary.Wheel.SetFlag(BaseEntity.Flags.Busy, false);
@@ -692,7 +691,7 @@ namespace Oxide.Plugins
 
         #region Message Helper
         private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
-        private void Message(IPlayer player, string key, params object[] args) => player.Reply(Lang(key, player.Id, args));
+        private void Message(IPlayer player, string key, params object[] args) => player.Message(Lang(key, player.Id, args));
         #endregion
 
         #region config
