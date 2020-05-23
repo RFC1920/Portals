@@ -11,7 +11,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.4", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.5", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -70,9 +70,11 @@ namespace Oxide.Plugins
                 }
                 portal.ReCreate();
             }
+            SaveData();
             initialized = true;
         }
 
+        private void OnServerShutdown() => Unload();
         private void Unload()
         {
             SaveData();
@@ -80,14 +82,13 @@ namespace Oxide.Plugins
             {
                 if(portal != null) portal.Remove();
             }
-            portals = null;
         }
 
         private void OnPlayerDisconnected(BasePlayer player, string reason)
         {
             if(player.gameObject.GetComponent<PortalPlayerHandler>())
             {
-                Component.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
+                UnityEngine.Object.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
             }
         }
 
@@ -356,11 +357,11 @@ namespace Oxide.Plugins
 
                     if(portal.point.Wheel && Instance.spinEntrance)
                     {
-                        (portal.point.Wheel as SpinnerWheel).velocity += Oxide.Core.Random.Range(2f, 4f);
+                        (portal.point.Wheel as SpinnerWheel).velocity += Core.Random.Range(2f, 4f);
                     }
                     if(otherPoint.Wheel && Instance.spinExit)
                     {
-                        (otherPoint.Wheel as SpinnerWheel).velocity += Oxide.Core.Random.Range(2f, 4f);
+                        (otherPoint.Wheel as SpinnerWheel).velocity += Core.Random.Range(2f, 4f);
                     }
 
                     Interface.CallHook("OnPortalUsed", player, JObject.FromObject(portal.info), JObject.FromObject(portal.point));
@@ -398,20 +399,22 @@ namespace Oxide.Plugins
 #if DEBUG
                     Interface.Oxide.LogWarning($"Creating portal wheel!");
 #endif
-                    p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3 + new Vector3(0, 0.02f, 0), new Quaternion(), true);
+                    p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3 + new Vector3(0, 0.02f, 0), new Quaternion(), true) as SpinnerWheel;
                     p.Wheel.Spawn();
-                    p.Wheel.SetFlag(BaseEntity.Flags.Busy, true);
-                    p.Wheel.SetFlag(BaseEntity.Flags.Reserved3, true);
 
-                    if(Instance.nameOnWheel)
+                    if (Instance.nameOnWheel)
                     {
+                        Instance.NextTick(() =>
+                        {
 #if DEBUG
-                        Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
+                            Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
 #endif
-                        int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
-                        Instance.SignArtist?.Call("signText", null, p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
-//                        Instance.SignArtist?.Call("Silt", p.Wheel, info.ID, fontsize, Instance.textColor, Instance.bgColor);
-//                        Instance.SignCall("SilSiltt", p.Wheel, info.ID, fontsize);
+                            int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
+                            Instance.SignArtist?.Call("signText", null, p.Wheel as Signage, info.ID, fontsize, Instance.textColor, Instance.bgColor);
+
+                            p.Wheel.SetFlag(BaseEntity.Flags.Busy, true);
+                            p.Wheel.SetFlag(BaseEntity.Flags.Reserved3, true);
+                        });
                     }
                 }
             }
@@ -548,20 +551,21 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-//                if(Primary.Wheel is BaseEntity)
-                if(Instance.deploySpinner)
-                {
-                    Primary.Wheel.SetFlag(BaseEntity.Flags.Busy, false);
-                    Primary.Wheel.Kill();
-                    Secondary.Wheel.SetFlag(BaseEntity.Flags.Busy, false);
-                    Secondary.Wheel.Kill();
-                }
+                List<SpinnerWheel> wheels = new List<SpinnerWheel>();
 
+                Primary.Wheel.Kill();
+                Vis.Entities<SpinnerWheel>(Primary.Location.Vector3, 0.05f, wheels);
+                foreach (var wheel in wheels) wheel.Kill();
                 Primary.Sphere.Kill();
-                Secondary.Sphere.Kill();
+                UnityEngine.Object.Destroy(Primary.GameObject);
 
-                GameObject.Destroy(Primary.GameObject);
-                GameObject.Destroy(Secondary.GameObject);
+                Secondary.Wheel.Kill();
+                Vis.Entities<SpinnerWheel>(Secondary.Location.Vector3, 0.05f, wheels);
+                foreach (var wheel in wheels) wheel.Kill();
+                Secondary.Sphere.Kill();
+                UnityEngine.Object.Destroy(Secondary.GameObject);
+
+                _created = false;
             }
 
             public bool CanUse(BasePlayer player) => Instance.permission.UserHasPermission(player.UserIDString, RequiredPermission);
@@ -584,7 +588,7 @@ namespace Oxide.Plugins
             internal PortalPointType PointType;
             internal GameObject GameObject;
             internal SphereEntity Sphere;
-            internal BaseEntity Wheel;
+            internal SpinnerWheel Wheel;
         }
 
         private class Location
