@@ -8,10 +8,11 @@ using Facepunch.Extend;
 using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Core.Libraries.Covalence;
+using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.5", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.6", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -30,6 +31,7 @@ namespace Oxide.Plugins
         private bool spinEntrance = true;
         private bool spinExit = true;
         private float teleTimer;
+        private bool playEffects = false;
 
         [PluginReference]
         private Plugin SignArtist;
@@ -78,15 +80,15 @@ namespace Oxide.Plugins
         private void Unload()
         {
             SaveData();
-            foreach(PortalInfo portal in portals)
+            foreach (PortalInfo portal in portals)
             {
-                if(portal != null) portal.Remove();
+                if (portal != null) portal.Remove();
             }
         }
 
         private void OnPlayerDisconnected(BasePlayer player, string reason)
         {
-            if(player.gameObject.GetComponent<PortalPlayerHandler>())
+            if (player.gameObject.GetComponent<PortalPlayerHandler>())
             {
                 UnityEngine.Object.Destroy(player.gameObject.GetComponent<PortalPlayerHandler>());
             }
@@ -373,6 +375,7 @@ namespace Oxide.Plugins
         {
             public PortalInfo info = new PortalInfo();
             public PortalPoint point = new PortalPoint();
+            private bool isEntered = false;
 
             public static void Create(PortalInfo info, PortalPoint p)
             {
@@ -433,13 +436,16 @@ namespace Oxide.Plugins
                     {
                         handler.timer.Destroy();
                         Instance.Message(handler.player.IPlayer, "TeleportationCancelled");
+                        if(Instance.playEffects) ExitEffects(handler.player);
                     }
                 }
+                isEntered = false;
             }
 
             public void OnTriggerEnter(Collider coll)
             {
                 if(!Instance.initialized) return;
+                isEntered = true;
 
                 GameObject go = coll.gameObject;
                 var player = coll.ToBaseEntity() as BasePlayer;
@@ -469,7 +475,9 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        if(player.IPlayer != null) Instance.Message(player.IPlayer, "Teleporting", info.ID, info.TeleportationTime.ToString());
+                        if(Instance.playEffects) EnterEffects(player, info.TeleportationTime);
+
+                        if (player.IPlayer != null) Instance.Message(player.IPlayer, "Teleporting", info.ID, info.TeleportationTime.ToString());
                         handler.timer = Instance.timer.Once(info.TeleportationTime, () => handler.Teleport(this));
                     }
                 }
@@ -497,6 +505,36 @@ namespace Oxide.Plugins
                 rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
 
                 UpdateCollider();
+            }
+
+            private void SendEffectTo(string effect, BasePlayer player)
+            {
+                if (player == null) return;
+                if (!isEntered) return;
+
+                var EffectInstance = new Effect();
+                EffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.up, Vector3.zero);
+                EffectInstance.pooledstringid = StringPool.Get(effect);
+                Net.sv.write.Start();
+                Net.sv.write.PacketID(Network.Message.Type.Effect);
+                EffectInstance.WriteToStream(Net.sv.write);
+                Net.sv.write.Send(new SendInfo(player.net.connection));
+                EffectInstance.Clear();
+            }
+
+            void EnterEffects(BasePlayer player, float time)
+            {
+                if (player == null) return;
+
+                SendEffectTo("assets/prefabs/tools/detonator/effects/attack.prefab", player);
+                Instance.timer.Once(info.TeleportationTime - 1f, () => SendEffectTo("assets/prefabs/tools/flareold/effects/ignite.prefab", player));
+                Instance.timer.Once(info.TeleportationTime - 0.7f, () => SendEffectTo("assets/bundled/prefabs/fx/takedamage_generic.prefab", player));
+                Instance.timer.Once(info.TeleportationTime - 0.4f, () => SendEffectTo("assets/prefabs/npc/sam_site_turret/effects/tube_launch.prefab", player));
+            }
+
+            void ExitEffects(BasePlayer player)
+            {
+                SendEffectTo("assets/prefabs/tools/detonator/effects/deploy.prefab", player);
             }
         }
 
@@ -732,6 +770,7 @@ namespace Oxide.Plugins
             CheckCfg<bool>("Spin exit wheel on teleport", ref spinExit);
             CheckCfg<bool>("Set two-way portals by default", ref defaultTwoWay);
             CheckCfgFloat("Portal countdown in seconds", ref teleTimer);
+            CheckCfg<bool>("Play AV effects on teleport", ref playEffects);
         }
 
         private void CheckCfg<T>(string Key, ref T var)
