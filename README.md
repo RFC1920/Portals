@@ -70,7 +70,9 @@ Commands can be used in chat or console.
   "Spinner Text Color": "FFFF00",
   "Spin entrance wheel on teleport": false,
   "Spin exit wheel on teleport": true,
+  "Play AV effects on teleport": false
 }
+
 
 ```
 
