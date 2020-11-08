@@ -12,7 +12,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.6", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.7", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -139,6 +139,40 @@ namespace Oxide.Plugins
         }
         #endregion
 
+        #region inbound hooks
+        private bool SpawnEphemeralPortal(BasePlayer player, BaseEntity entity, float time = 10f)
+        {
+            if (player == null) return false;
+            if (entity == null) return false;
+            if (time < 5f) return false;
+#if DEBUG
+            Puts($"Trying to spin up a temporary portal for {player.displayName} to {entity.ShortPrefabName}");
+#endif
+            var portal = new PortalInfo();
+            portal.ID = $"{player.displayName}:TEMP";
+
+            Vector3 primary = player.transform.position + player.transform.forward * 2f;
+            primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+            portal.Primary.Location.Vector3 = primary;
+
+            Vector3 secondary = entity.transform.position + entity.transform.forward * 2f;
+            secondary.y = TerrainMeta.HeightMap.GetHeight(entity.transform.position);
+            portal.Secondary.Location.Vector3 = secondary;
+
+            portal.OneWay = true;
+            portals.Add(portal);
+            portal.ReCreate();
+            timer.Once(time, () => KillEphemeralPortal(portal));
+            return true;
+        }
+        
+        private void KillEphemeralPortal(PortalInfo portal)
+        {
+            portal.Remove();
+            portals.Remove(portal);
+        }
+        #endregion
+
         #region Loading
         private void LoadMessages()
         {
@@ -203,7 +237,9 @@ namespace Oxide.Plugins
                         portals.Add(portal);
                     }
 
-                    portal.Primary.Location.Vector3 = player.transform.position;
+                    Vector3 primary = player.transform.position;
+                    primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+                    portal.Primary.Location.Vector3 = primary;
                     portal.OneWay = !defaultTwoWay;
                     portal.ReCreate();
 
@@ -224,7 +260,9 @@ namespace Oxide.Plugins
                         portals.Add(portal);
                     }
 
-                    portal.Secondary.Location.Vector3 = player.transform.position;
+                    Vector3 secondary = player.transform.position;
+                    secondary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+                    portal.Secondary.Location.Vector3 = secondary;
                     portal.ReCreate();
 
                     SaveData();
@@ -463,7 +501,7 @@ namespace Oxide.Plugins
                         if(point.PointType == PortalPointType.Secondary && info.OneWay) return;
                         if(info.Secondary.Location.Vector3 == Vector3.zero || info.Primary.Location.Vector3 == Vector3.zero)
                         {
-                            if(player.IPlayer != null) Instance.Message(player.IPlayer, "PortalIncomplete", info.ID);
+                            if (player.IPlayer != null) Instance.Message(player.IPlayer, "PortalIncomplete", info.ID);
                             return;
                         }
 

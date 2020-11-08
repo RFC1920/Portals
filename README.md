@@ -112,3 +112,9 @@ Portals are saved in oxide/data/Portals.json.
         }
     }
 ```
+
+```cs
+    SpawnEphemeralPortal(BasePlayer player, BaseEntity entity, float time = 10f)
+```
+
+Spawns a temporary portal in front of a user and target entity.  It will be automatically destroyed after "time".  Default name is currently player.displayName:TEMP.
