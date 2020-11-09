@@ -12,7 +12,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.7", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.8", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -152,11 +152,17 @@ namespace Oxide.Plugins
             portal.ID = $"{player.displayName}:TEMP";
 
             Vector3 primary = player.transform.position + player.transform.forward * 2f;
-            primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+            if (!AboveFloor(primary))
+            {
+                primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
+            }
             portal.Primary.Location.Vector3 = primary;
 
             Vector3 secondary = entity.transform.position + entity.transform.forward * 2f;
-            secondary.y = TerrainMeta.HeightMap.GetHeight(entity.transform.position);
+            if (!AboveFloor(secondary))
+            {
+                secondary.y = TerrainMeta.HeightMap.GetHeight(entity.transform.position) + 0.1f;
+            }
             portal.Secondary.Location.Vector3 = secondary;
 
             portal.OneWay = true;
@@ -238,7 +244,10 @@ namespace Oxide.Plugins
                     }
 
                     Vector3 primary = player.transform.position;
-                    primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+                    if (!AboveFloor(primary))
+                    {
+                        primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
+                    }
                     portal.Primary.Location.Vector3 = primary;
                     portal.OneWay = !defaultTwoWay;
                     portal.ReCreate();
@@ -261,7 +270,10 @@ namespace Oxide.Plugins
                     }
 
                     Vector3 secondary = player.transform.position;
-                    secondary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position);
+                    if (!AboveFloor(secondary))
+                    {
+                        secondary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
+                    }
                     portal.Secondary.Location.Vector3 = secondary;
                     portal.ReCreate();
 
@@ -740,6 +752,20 @@ namespace Oxide.Plugins
         #endregion
 
         #region Data Helper
+        private bool AboveFloor(Vector3 position)
+        {
+            RaycastHit hitinfo;
+            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.2f, LayerMask.GetMask("Construction")))
+            {
+                var entity = hitinfo.GetEntity();
+                if(entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static bool GetBoolValue(string bvalue)
         {
             if(bvalue == null) return false;
