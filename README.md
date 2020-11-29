@@ -56,6 +56,9 @@ Commands can be used in chat or console.
 
    - /portal oneway <NAME> <truefalse>
 
+   - /portal perm/permission <NAME> <PERMISSION>
+     - Ex. /portal perm cp1 checkpoint1 -- Registers a new permission, portals.checkpoint1, for use with portal cp1.
+
    - /portal list - List existing portals
 
 ## Configuration
