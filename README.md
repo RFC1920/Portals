@@ -56,6 +56,8 @@ Commands can be used in chat or console.
 
    - /portal oneway <NAME> <truefalse>
 
+   - /portal spinner <NAME> <truefalse>
+
    - /portal perm/permission <NAME> <PERMISSION>
      - Ex. /portal perm cp1 checkpoint1 -- Registers a new permission, portals.checkpoint1, for use with portal cp1.
 
@@ -102,6 +104,7 @@ Portals are saved in oxide/data/Portals.json.
             }
         },
         "OneWay": true,
+        "DeploySpinner": true,
         "TeleportationTime": 0.0,
         "RequiredPermission": "portals.use"
     }

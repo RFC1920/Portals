@@ -12,7 +12,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.8", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.1.9", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -101,7 +101,7 @@ namespace Oxide.Plugins
 
             foreach(PortalInfo p in portals)
             {
-                if(deploySpinner)
+                if(p.DeploySpinner)
                 {
                     if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
@@ -123,7 +123,7 @@ namespace Oxide.Plugins
 
             foreach(PortalInfo p in portals)
             {
-                if(deploySpinner)
+                if(p.DeploySpinner)
                 {
                     if(p.Primary.Wheel.net.ID == entity.net.ID || p.Secondary.Wheel.net.ID == entity.net.ID)
                     {
@@ -159,15 +159,27 @@ namespace Oxide.Plugins
             portal.Primary.Location.Vector3 = primary;
 
             Vector3 secondary = entity.transform.position + entity.transform.forward * 2f;
+            bool ok = false;
+            while (!ok)
+            {
+                ok = !BadLocation(secondary);
+                secondary.x -= 0.5f;
+                secondary.z += 0.5f;
+#if DEBUG
+                Puts($"Seeking new location: {secondary.ToString()}");
+#endif
+            }
+            portal.Secondary.Location.Vector3 = secondary;
             if (!AboveFloor(secondary))
             {
                 secondary.y = TerrainMeta.HeightMap.GetHeight(entity.transform.position) + 0.1f;
             }
-            portal.Secondary.Location.Vector3 = secondary;
 
             portal.OneWay = true;
+            portal.DeploySpinner = deploySpinner;
             portals.Add(portal);
             portal.ReCreate();
+//            portal.Primary.GameObject.GetComponent<PortalEntity>().ExitEffects(player);
             timer.Once(time, () => KillEphemeralPortal(portal));
             return true;
         }
@@ -190,6 +202,7 @@ namespace Oxide.Plugins
                 { "PortalPrimarySet", "Primary for portal {0} was set at your current location." },
                 { "PortalSecondarySet", "Secondary for portal {0} was set at your current location." },
                 { "PortalOneWaySet", "OneWay for portal {0} was set to {1}." },
+                { "PortalSpinnerSet", "Spinner for portal {0} was set to {1}." },
                 { "PortalPermSet", "Permission for portal {0} was set to {1}." },
                 { "PortalTimerSet", "Timer for portal {0} was set to {1}." },
                 { "PortalRemoved", "Portal {0} was removed." },
@@ -250,6 +263,7 @@ namespace Oxide.Plugins
                     }
                     portal.Primary.Location.Vector3 = primary;
                     portal.OneWay = !defaultTwoWay;
+                    portal.DeploySpinner = deploySpinner;
                     portal.ReCreate();
 
                     SaveData();
@@ -309,6 +323,19 @@ namespace Oxide.Plugins
                     Message(iplayer, "PortalTimerSet", args[1], args[2]);
 
                     break;
+                case "spinner":
+                    if(args.Length != 3) { Message(iplayer, "syntax"); return; }
+
+                    ID = args[1];
+                    portal = PortalInfo.Find(ID);
+                    if(portal == null) { Message(iplayer, "PortalDoesNotExist", args[1]); return; }
+
+                    portal.DeploySpinner = GetBoolValue(args[2]);
+                    SaveData();
+                    portal.ReCreate();
+                    Message(iplayer, "PortalSpinnerSet", ID, args[2]);
+
+                    break;
                 case "oneway":
                     if(args.Length != 3) { Message(iplayer, "syntax"); return; }
 
@@ -358,6 +385,7 @@ namespace Oxide.Plugins
                             var pperm = Lang("perm") + p.RequiredPermission.Replace("portals.", "");
                             portalList += $"\n<color=#333> - </color><color=#C4FF00>{p.ID} {pentrance} {pexit} [{ptime}, {pperm}]</color>";
                             if(p.OneWay) portalList += "<color=#333> (oneway) </color>";
+                            if(p.DeploySpinner) portalList += "<color=#333> (spinner) </color>";
                             portalList += "\n";
                         }
                     }
@@ -447,7 +475,7 @@ namespace Oxide.Plugins
                 p.Sphere.lerpSpeed = 0f;
                 p.Sphere.Spawn();
 
-                if(Instance.deploySpinner)
+                if(info.DeploySpinner)
                 {
 #if DEBUG
                     Interface.Oxide.LogWarning($"Creating portal wheel!");
@@ -572,7 +600,7 @@ namespace Oxide.Plugins
                 EffectInstance.Clear();
             }
 
-            void EnterEffects(BasePlayer player, float time)
+            public void EnterEffects(BasePlayer player, float time)
             {
                 if (player == null) return;
 
@@ -582,7 +610,7 @@ namespace Oxide.Plugins
                 Instance.timer.Once(info.TeleportationTime - 0.4f, () => SendEffectTo("assets/prefabs/npc/sam_site_turret/effects/tube_launch.prefab", player));
             }
 
-            void ExitEffects(BasePlayer player)
+            public void ExitEffects(BasePlayer player)
             {
                 SendEffectTo("assets/prefabs/tools/detonator/effects/deploy.prefab", player);
             }
@@ -602,6 +630,7 @@ namespace Oxide.Plugins
             public readonly PortalPoint Primary = new PortalPoint { PointType = PortalPointType.Primary };
             public readonly PortalPoint Secondary = new PortalPoint { PointType = PortalPointType.Secondary };
             public bool OneWay = true;
+            public bool DeploySpinner = false;
             public float TeleportationTime = Instance.teleTimer;
             public string RequiredPermission = "portals.use";
 
@@ -639,17 +668,24 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-                List<SpinnerWheel> wheels = new List<SpinnerWheel>();
-
-                Primary.Wheel.Kill();
-                Vis.Entities<SpinnerWheel>(Primary.Location.Vector3, 0.05f, wheels);
-                foreach (var wheel in wheels) wheel.Kill();
+                if (Primary.Wheel != null)
+                {
+                    Primary.Wheel.Kill();
+                    List<SpinnerWheel> wheels = new List<SpinnerWheel>();
+                    Vis.Entities(Primary.Location.Vector3, 0.05f, wheels);
+                    foreach (var wheel in wheels) wheel.Kill();
+                }
                 Primary.Sphere.Kill();
                 UnityEngine.Object.Destroy(Primary.GameObject);
 
-                Secondary.Wheel.Kill();
-                Vis.Entities<SpinnerWheel>(Secondary.Location.Vector3, 0.05f, wheels);
-                foreach (var wheel in wheels) wheel.Kill();
+                if (Secondary.Wheel != null)
+                {
+                    Secondary.Wheel.Kill();
+                    List<SpinnerWheel> wheels = new List<SpinnerWheel>();
+                    Vis.Entities(Secondary.Location.Vector3, 0.05f, wheels);
+                    foreach (var wheel in wheels) wheel.Kill();
+                }
+
                 Secondary.Sphere.Kill();
                 UnityEngine.Object.Destroy(Secondary.GameObject);
 
@@ -715,6 +751,44 @@ namespace Oxide.Plugins
                 player.ClientRPCPlayer(null, player, "StartLoading");
             }
         }
+
+        private bool AboveFloor(Vector3 position)
+        {
+            RaycastHit hit;
+            if(Physics.Raycast(position, Vector3.down, out hit, 0.2f, LayerMask.GetMask("Construction")))
+            {
+                var entity = hit.GetEntity();
+                if(entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool BadLocation(Vector3 location)
+        {
+            // Avoid placing portal in a rock or foundation, water, etc.
+            int layerMask = LayerMask.GetMask("Construction", "World");
+            RaycastHit hit;
+            if(Physics.Raycast(new Ray(location, Vector3.down), out hit, 6f, layerMask))
+            {
+                return true;
+            }
+            else if(Physics.Raycast(new Ray(location, Vector3.up), out hit, 6f, layerMask))
+            {
+                return true;
+            }
+            else if(Physics.Raycast(new Ray(location, Vector3.forward), out hit, 2f, layerMask))
+            {
+                return true;
+            }
+            if((TerrainMeta.HeightMap.GetHeight(location) - TerrainMeta.WaterMap.GetHeight(location)) >= 0)
+            {
+                return true;
+            }
+            return false;
+        }
         #endregion
 
         #region Finding Helper
@@ -752,20 +826,6 @@ namespace Oxide.Plugins
         #endregion
 
         #region Data Helper
-        private bool AboveFloor(Vector3 position)
-        {
-            RaycastHit hitinfo;
-            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.2f, LayerMask.GetMask("Construction")))
-            {
-                var entity = hitinfo.GetEntity();
-                if(entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private static bool GetBoolValue(string bvalue)
         {
             if(bvalue == null) return false;
