@@ -12,7 +12,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.1.9", ResourceId = 1234)]
+    [Info("Portals", "LaserHydra/RFC1920", "2.2.0", ResourceId = 1234)]
     [Description("Create portals and feel like in Star Trek")]
     class Portals : RustPlugin
     {
@@ -25,6 +25,7 @@ namespace Oxide.Plugins
 
         private bool deploySpinner = true;
         private bool defaultTwoWay = false;
+        private bool wipeOnNewSave = true;
         private bool nameOnWheel = true;
         private string bgColor = "000000";
         private string textColor = "00FF00";
@@ -42,13 +43,16 @@ namespace Oxide.Plugins
         #region Oxide Hooks
         void OnNewSave(string strFilename)
         {
-            Puts("Map change - wiping portal locations");
-            foreach(var portal in portals)
+            if (wipeOnNewSave)
             {
-                portal.Primary.Location.Vector3 = new Vector3();
-                portal.Secondary.Location.Vector3 = new Vector3();
+                Puts("Map change - wiping portal locations");
+                foreach (var portal in portals)
+                {
+                    portal.Primary.Location.Vector3 = new Vector3();
+                    portal.Secondary.Location.Vector3 = new Vector3();
+                }
+                SaveData();
             }
-            SaveData();
         }
 
         private void OnServerInitialized()
@@ -887,6 +891,7 @@ namespace Oxide.Plugins
         private void LoadConfigVariables()
         {
             CheckCfg<bool>("Deploy spinner at portal points", ref deploySpinner);
+            CheckCfg<bool>("Wipe portals on new save (monthly)", ref wipeOnNewSave);
             CheckCfg<bool>("Write portal name on spinners", ref nameOnWheel);
             CheckCfg<string>("Spinner Background Color", ref bgColor);
             CheckCfg<string>("Spinner Text Color", ref textColor);
