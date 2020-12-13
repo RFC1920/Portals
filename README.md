@@ -67,18 +67,22 @@ Commands can be used in chat or console.
 
 ```json
 {
-  "Set two-way portals by default": true,
-  "Portal countdown in seconds": 5.0,
-  "Deploy spinner at portal points": true,
-  "Write portal name on spinners": true
-  "Spinner Background Color": "000000",
-  "Spinner Text Color": "FFFF00",
-  "Spin entrance wheel on teleport": false,
-  "Spin exit wheel on teleport": true,
-  "Play AV effects on teleport": false
+  "wipeOnNewSave": true,
+  "defaultTwoWay": false,
+  "playEffects": false,
+  "defaultCountdown": 5.0,
+  "deploySpinner": true,
+  "nameOnWheel": true,
+  "spinEntrance": false,
+  "spinExit": true,
+  "spinnerBGColor": "222222",
+  "spinnerTextColor": "333333",
+  "Version": {
+    "Major": 2,
+    "Minor": 2,
+    "Patch": 1
+  }
 }
-
-
 ```
 
 ## Stored Data

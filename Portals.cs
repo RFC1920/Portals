@@ -12,27 +12,17 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.2.0", ResourceId = 1234)]
-    [Description("Create portals and feel like in Star Trek")]
+    [Info("Portals", "LaserHydra/RFC1920", "2.2.1")]
+    [Description("Create portals and feel like you're in Star Trek")]
     class Portals : RustPlugin
     {
-        #region Global Declaration
+        #region vars
+        private ConfigData configData;
         private List<PortalInfo> portals = new List<PortalInfo>();
         public static Portals Instance = null;
 
         private const string permPortalsUse = "portals.use";
         private const string permPortalsAdmin = "portals.admin";
-
-        private bool deploySpinner = true;
-        private bool defaultTwoWay = false;
-        private bool wipeOnNewSave = true;
-        private bool nameOnWheel = true;
-        private string bgColor = "000000";
-        private string textColor = "00FF00";
-        private bool spinEntrance = true;
-        private bool spinExit = true;
-        private float teleTimer;
-        private bool playEffects = false;
 
         [PluginReference]
         private Plugin SignArtist;
@@ -43,7 +33,7 @@ namespace Oxide.Plugins
         #region Oxide Hooks
         void OnNewSave(string strFilename)
         {
-            if (wipeOnNewSave)
+            if (configData.wipeOnNewSave)
             {
                 Puts("Map change - wiping portal locations");
                 foreach (var portal in portals)
@@ -55,18 +45,15 @@ namespace Oxide.Plugins
             }
         }
 
-        private void OnServerInitialized()
+        private void Init()
         {
             Instance = this;
 
-            LoadVariables();
-            LoadData();
-            LoadMessages();
-
             AddCovalenceCommand("portal", "CmdPortal");
-
             permission.RegisterPermission(permPortalsUse, this);
             permission.RegisterPermission(permPortalsAdmin, this);
+            LoadConfigVariables();
+            LoadData();
 
             foreach(PortalInfo portal in portals)
             {
@@ -180,7 +167,7 @@ namespace Oxide.Plugins
             }
 
             portal.OneWay = true;
-            portal.DeploySpinner = deploySpinner;
+            portal.DeploySpinner = configData.deploySpinner;
             portals.Add(portal);
             portal.ReCreate();
 //            portal.Primary.GameObject.GetComponent<PortalEntity>().ExitEffects(player);
@@ -196,7 +183,7 @@ namespace Oxide.Plugins
         #endregion
 
         #region Loading
-        private void LoadMessages()
+        protected override void LoadDefaultMessages()
         {
             lang.RegisterMessages(new Dictionary<string, string>
             {
@@ -266,8 +253,8 @@ namespace Oxide.Plugins
                         primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
                     }
                     portal.Primary.Location.Vector3 = primary;
-                    portal.OneWay = !defaultTwoWay;
-                    portal.DeploySpinner = deploySpinner;
+                    portal.OneWay = !configData.defaultTwoWay;
+                    portal.DeploySpinner = configData.deploySpinner;
                     portal.ReCreate();
 
                     SaveData();
@@ -395,30 +382,6 @@ namespace Oxide.Plugins
                     }
                     Message(iplayer, "PortalList", portalList);
                     break;
-//                case "config":
-//                    if(args.Length == 1)
-//                    {
-//                        //display config
-//                        string showconfig  = "\n  " + Lang("cDeploySpinner", null, deploySpinner.ToString());
-//                        showconfig += "\n  " + Lang("cNameOnWheel", null, nameOnWheel.ToString());
-//                        showconfig += "\n  " + Lang("cBgColor", null, bgColor);
-//                        showconfig += "\n  " + Lang("cTextColor", null, textColor);
-//                        showconfig += "\n  " + Lang("cSpinEntrance", null, spinEntrance.ToString());
-//                        showconfig += "\n  " + Lang("cSpinExit", null, spinExit.ToString());
-//                        showconfig += "\n  " + Lang("cDefaultTwoWay", null, defaultTwoWay.ToString());
-//                        showconfig += "\n  " + Lang("cTeleTimer", null, teleTimer.ToString());
-//                        Message(iplayer, "config", showconfig);
-//                    }
-//                    else if(args.Length != 3)
-//                    {
-//                        Message(iplayer, "syntax");
-//                        return;
-//                    }
-//                    else
-//                    {
-//                        // /portal config teleTimer 7
-//                    }
-//                    break;
                 default:
                     Message(iplayer, "syntax");
                     break;
@@ -439,11 +402,11 @@ namespace Oxide.Plugins
                     PortalPoint otherPoint = portal.point.PointType == PortalPointType.Primary ? portal.info.Secondary : portal.info.Primary;
                     Instance.Teleport(player, otherPoint.Location.Vector3);
 
-                    if(portal.point.Wheel && Instance.spinEntrance)
+                    if(portal.point.Wheel && Instance.configData.spinEntrance)
                     {
                         (portal.point.Wheel as SpinnerWheel).velocity += Core.Random.Range(2f, 4f);
                     }
-                    if(otherPoint.Wheel && Instance.spinExit)
+                    if(otherPoint.Wheel && Instance.configData.spinExit)
                     {
                         (otherPoint.Wheel as SpinnerWheel).velocity += Core.Random.Range(2f, 4f);
                     }
@@ -487,7 +450,7 @@ namespace Oxide.Plugins
                     p.Wheel = GameManager.server.CreateEntity("assets/prefabs/deployable/spinner_wheel/spinner.wheel.deployed.prefab", p.Location.Vector3 + new Vector3(0, 0.02f, 0), new Quaternion(), true) as SpinnerWheel;
                     p.Wheel.Spawn();
 
-                    if (Instance.nameOnWheel)
+                    if (Instance.configData.nameOnWheel)
                     {
                         Instance.NextTick(() =>
                         {
@@ -495,8 +458,20 @@ namespace Oxide.Plugins
                             Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
 #endif
                             int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
-                            Instance.SignArtist?.Call("signText", null, p.Wheel as Signage, info.ID, fontsize, Instance.textColor, Instance.bgColor);
-
+                            // Try to paint the sign using one of two versions of SignArtist
+                            try
+                            {
+                                // The version with this call needs to have the function modified to private to work.
+                                Instance.SignArtist?.Call("API_SignText", null, p.Wheel as Signage, info.ID, fontsize, Instance.configData.spinnerTextColor, Instance.configData.spinnerBGColor);
+                            }
+                            catch
+                            {
+                                // The versions with this call should work...
+                                Instance.SignArtist?.Call("signText", null, p.Wheel as Signage, info.ID, fontsize, Instance.configData.spinnerTextColor, Instance.configData.spinnerBGColor);
+                            }
+#if DEBUG
+                            Interface.Oxide.LogWarning($"Writing done, setting flags.");
+#endif
                             p.Wheel.SetFlag(BaseEntity.Flags.Busy, true);
                             p.Wheel.SetFlag(BaseEntity.Flags.Reserved3, true);
                         });
@@ -518,7 +493,7 @@ namespace Oxide.Plugins
                     {
                         handler.timer.Destroy();
                         Instance.Message(handler.player.IPlayer, "TeleportationCancelled");
-                        if(Instance.playEffects) ExitEffects(handler.player);
+                        if(Instance.configData.playEffects) ExitEffects(handler.player);
                     }
                 }
                 isEntered = false;
@@ -557,7 +532,7 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        if(Instance.playEffects) EnterEffects(player, info.TeleportationTime);
+                        if(Instance.configData.playEffects) EnterEffects(player, info.TeleportationTime);
 
                         if (player.IPlayer != null) Instance.Message(player.IPlayer, "Teleporting", info.ID, info.TeleportationTime.ToString());
                         handler.timer = Instance.timer.Once(info.TeleportationTime, () => handler.Teleport(this));
@@ -635,7 +610,7 @@ namespace Oxide.Plugins
             public readonly PortalPoint Secondary = new PortalPoint { PointType = PortalPointType.Secondary };
             public bool OneWay = true;
             public bool DeploySpinner = false;
-            public float TeleportationTime = Instance.teleTimer;
+            public float TeleportationTime = Instance.configData.defaultCountdown;
             public string RequiredPermission = "portals.use";
 
             private bool _created;
@@ -656,11 +631,11 @@ namespace Oxide.Plugins
             {
                 Update();
 #if DEBUG
-                Interface.Oxide.LogWarning($"Creating portal primary");
+                Interface.Oxide.LogWarning($"Creating portal Primary");
 #endif
                 PortalEntity.Create(this, Primary);
 #if DEBUG
-                Interface.Oxide.LogWarning($"Creating portal secondary");
+                Interface.Oxide.LogWarning($"Creating portal Secondary");
 #endif
                 PortalEntity.Create(this, Secondary);
                 _created = true;
@@ -672,26 +647,19 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-                if (Primary.Wheel != null)
-                {
-                    Primary.Wheel.Kill();
-                    List<SpinnerWheel> wheels = new List<SpinnerWheel>();
-                    Vis.Entities(Primary.Location.Vector3, 0.05f, wheels);
-                    foreach (var wheel in wheels) wheel.Kill();
-                }
+                if (Primary.Wheel != null) Primary.Wheel.Kill();
                 Primary.Sphere.Kill();
                 UnityEngine.Object.Destroy(Primary.GameObject);
 
-                if (Secondary.Wheel != null)
-                {
-                    Secondary.Wheel.Kill();
-                    List<SpinnerWheel> wheels = new List<SpinnerWheel>();
-                    Vis.Entities(Secondary.Location.Vector3, 0.05f, wheels);
-                    foreach (var wheel in wheels) wheel.Kill();
-                }
-
+                if (Secondary.Wheel != null) Secondary.Wheel.Kill();
                 Secondary.Sphere.Kill();
                 UnityEngine.Object.Destroy(Secondary.GameObject);
+
+                List<SpinnerWheel> wheels = new List<SpinnerWheel>();
+                Vis.Entities(Primary.Location.Vector3, 0.05f, wheels);
+                foreach (var wheel in wheels) wheel.Kill();
+                Vis.Entities(Secondary.Location.Vector3, 0.05f, wheels);
+                foreach (var wheel in wheels) wheel.Kill();
 
                 _created = false;
             }
@@ -859,89 +827,66 @@ namespace Oxide.Plugins
         }
         #endregion
 
-        #region Message Helper
+        #region messages
         private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
         private void Message(IPlayer player, string key, params object[] args) => player.Message(Lang(key, player.Id, args));
         #endregion
 
         #region config
-        protected override void LoadDefaultConfig()
+        public class ConfigData
         {
-#if DEBUG
-            Puts("Creating a new config file...");
-#endif
-            deploySpinner = true;
-            nameOnWheel = true;
-            bgColor = "000000";
-            textColor = "00FF00";
-            spinEntrance = true;
-            spinExit = true;
-            defaultTwoWay = false;
-            teleTimer = 5f;
+            public bool wipeOnNewSave = true;
+            public bool defaultTwoWay = false;
+            public bool playEffects = false;
+            public float defaultCountdown = 5f;
 
-            LoadVariables();
-        }
-
-        private void LoadVariables()
-        {
-            LoadConfigVariables();
-            SaveConfig();
+            public bool deploySpinner = true;
+            public bool nameOnWheel = true;
+            public bool spinEntrance = true;
+            public bool spinExit = true;
+            public string spinnerBGColor = "000000";
+            public string spinnerTextColor = "00FF00";
+            public VersionNumber Version;
         }
 
         private void LoadConfigVariables()
         {
-            CheckCfg<bool>("Deploy spinner at portal points", ref deploySpinner);
-            CheckCfg<bool>("Wipe portals on new save (monthly)", ref wipeOnNewSave);
-            CheckCfg<bool>("Write portal name on spinners", ref nameOnWheel);
-            CheckCfg<string>("Spinner Background Color", ref bgColor);
-            CheckCfg<string>("Spinner Text Color", ref textColor);
-            CheckCfg<bool>("Spin entrance wheel on teleport", ref spinEntrance);
-            CheckCfg<bool>("Spin exit wheel on teleport", ref spinExit);
-            CheckCfg<bool>("Set two-way portals by default", ref defaultTwoWay);
-            CheckCfgFloat("Portal countdown in seconds", ref teleTimer);
-            CheckCfg<bool>("Play AV effects on teleport", ref playEffects);
+            configData = Config.ReadObject<ConfigData>();
+
+            if (configData.Version < new VersionNumber(2, 2, 1) || configData.Version == null)
+            {
+                try
+                {
+                    if (Config["Deploy spinner at portal points"] is bool) configData.deploySpinner = (bool)Config["Deploy spinner at portal points"];
+                    if (Config["Wipe portals on new save (monthly)"] is bool) configData.wipeOnNewSave = (bool)Config["Wipe portals on new save (monthly)"];
+                    if (Config["Write portal name on spinners"] is bool) configData.nameOnWheel = (bool)Config["Write portal name on spinners"];
+                    if (Config["Spinner Background Color"] is string) configData.spinnerBGColor = (string)Config["Spinner Background Color"];
+                    if (Config["Spinner Text Color"] is string) configData.spinnerTextColor = (string)Config["Spinner Text Color"];
+                    if (Config["Spin entrance wheel on teleport"] is bool) configData.spinEntrance = (bool)Config["Spin entrance wheel on teleport"];
+                    if (Config["Spin exit wheel on teleport"] is bool) configData.spinExit = (bool)Config["Spin exit wheel on teleport"];
+                    if (Config["Set two-way portals by default"] is bool) configData.defaultTwoWay = (bool)Config["Set two-way portals by default"];
+                    if (Config["Portal countdown in seconds"] is float) configData.defaultCountdown = (float)Config["Portal countdown in seconds"];
+                    if (Config["Play AV effects on teleport"] is bool) configData.playEffects = (bool)Config["Play AV effects on teleport"];
+                }
+                catch { }
+            }
+
+            configData.Version = Version;
+            SaveConfig(configData);
         }
 
-        private void CheckCfg<T>(string Key, ref T var)
+        protected override void LoadDefaultConfig()
         {
-            if(Config[Key] is T)
+            Puts("Creating new config file.");
+            var config = new ConfigData
             {
-                var = (T)Config[Key];
-            }
-            else
-            {
-                Config[Key] = var;
-            }
+                Version = Version
+            };
         }
 
-        private void CheckCfgFloat(string Key, ref float var)
+        private void SaveConfig(ConfigData config)
         {
-            if(Config[Key] != null)
-            {
-                var = Convert.ToSingle(Config[Key]);
-            }
-            else
-            {
-                Config[Key] = var;
-            }
-        }
-
-        object GetConfig(string menu, string datavalue, object defaultValue)
-        {
-            var data = Config[menu] as Dictionary<string, object>;
-            if(data == null)
-            {
-                data = new Dictionary<string, object>();
-                Config[menu] = data;
-            }
-
-            object value;
-            if(!data.TryGetValue(datavalue, out value))
-            {
-                value = defaultValue;
-                data[datavalue] = value;
-            }
-            return value;
+            Config.WriteObject(config, true);
         }
         #endregion
     }
