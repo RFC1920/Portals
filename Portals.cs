@@ -12,7 +12,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.2.1")]
+    [Info("Portals", "LaserHydra/RFC1920", "2.2.2")]
     [Description("Create portals and feel like you're in Star Trek")]
     class Portals : RustPlugin
     {
@@ -45,7 +45,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private void Init()
+        private void OnServerInitialized()
         {
             Instance = this;
 
@@ -285,6 +285,10 @@ namespace Oxide.Plugins
                     SaveData();
                     Message(iplayer, "PortalSecondarySet", args[1]);
                     break;
+                case "wipe":
+                    portals = new List<PortalInfo>();
+                    SaveData();
+                    break;
                 case "remove":
                 case "delete":
                     if(args.Length != 2) { Message(iplayer, "syntax"); return; }
@@ -462,7 +466,7 @@ namespace Oxide.Plugins
                             try
                             {
                                 // The version with this call needs to have the function modified to private to work.
-                                Instance.SignArtist?.Call("API_SignText", null, p.Wheel as Signage, info.ID, fontsize, Instance.configData.spinnerTextColor, Instance.configData.spinnerBGColor);
+                                Instance.SignArtist?.Call("API_SignText", new BasePlayer(), p.Wheel as Signage, info.ID, fontsize, Instance.configData.spinnerTextColor, Instance.configData.spinnerBGColor);
                             }
                             catch
                             {
@@ -647,12 +651,18 @@ namespace Oxide.Plugins
 #if DEBUG
                 Interface.Oxide.LogWarning($"Removing portal {ID}");
 #endif
-                if (Primary.Wheel != null) Primary.Wheel.Kill();
-                Primary.Sphere.Kill();
+                if (Primary.Wheel != null)
+                {
+                    if (!Primary.Wheel.IsDestroyed) Primary.Wheel.Kill();
+                    if (!Primary.Sphere.IsDestroyed) Primary.Sphere.Kill();
+                }
                 UnityEngine.Object.Destroy(Primary.GameObject);
 
-                if (Secondary.Wheel != null) Secondary.Wheel.Kill();
-                Secondary.Sphere.Kill();
+                if (Secondary.Wheel != null)
+                {
+                    if (!Secondary.Wheel.IsDestroyed) Secondary.Wheel.Kill();
+                    if (!Secondary.Sphere.IsDestroyed) Secondary.Sphere.Kill();
+                }
                 UnityEngine.Object.Destroy(Secondary.GameObject);
 
                 List<SpinnerWheel> wheels = new List<SpinnerWheel>();
