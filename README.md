@@ -73,6 +73,7 @@ Commands can be used in chat or console.
   "defaultCountdown": 5.0,
   "deploySpinner": true,
   "nameOnWheel": true,
+  "useNoEscape": false,
   "spinEntrance": false,
   "spinExit": true,
   "spinnerBGColor": "222222",

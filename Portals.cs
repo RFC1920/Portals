@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
@@ -9,10 +9,11 @@ using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Core.Libraries.Covalence;
 using Network;
+using Newtonsoft.Json;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.2.2")]
+    [Info("Portals", "LaserHydra/RFC1920", "2.2.3")]
     [Description("Create portals and feel like you're in Star Trek")]
     class Portals : RustPlugin
     {
@@ -25,7 +26,7 @@ namespace Oxide.Plugins
         private const string permPortalsAdmin = "portals.admin";
 
         [PluginReference]
-        private Plugin SignArtist;
+        private Plugin SignArtist, NoEscape;
 
         public bool initialized = false;
         #endregion
@@ -248,10 +249,10 @@ namespace Oxide.Plugins
                     }
 
                     Vector3 primary = player.transform.position;
-                    if (!AboveFloor(primary))
-                    {
-                        primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
-                    }
+                    //if (!AboveFloor(primary))
+                    //{
+                    //    primary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
+                    //}
                     portal.Primary.Location.Vector3 = primary;
                     portal.OneWay = !configData.defaultTwoWay;
                     portal.DeploySpinner = configData.deploySpinner;
@@ -275,10 +276,10 @@ namespace Oxide.Plugins
                     }
 
                     Vector3 secondary = player.transform.position;
-                    if (!AboveFloor(secondary))
-                    {
-                        secondary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
-                    }
+                    //if (!AboveFloor(secondary))
+                    //{
+                    //    secondary.y = TerrainMeta.HeightMap.GetHeight(player.transform.position) + 0.1f;
+                    //}
                     portal.Secondary.Location.Vector3 = secondary;
                     portal.ReCreate();
 
@@ -458,10 +459,12 @@ namespace Oxide.Plugins
                     {
                         Instance.NextTick(() =>
                         {
+                            Interface.Oxide.LogDebug($"Texture size: {p.Wheel.paintableSources.FirstOrDefault().texWidth.ToString()}");
+                            info.ID = info.ID.Trim();
+                            int fontsize = Convert.ToInt32(Math.Floor(100f / info.ID.Length / 2));
 #if DEBUG
-                            Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel!");
+                            Interface.Oxide.LogWarning($"Writing name, {info.ID}, on portal wheel with fontsize {fontsize.ToString()} and color {Instance.configData.spinnerTextColor.ToString()}!");
 #endif
-                            int fontsize = Convert.ToInt32(Math.Floor(285f / info.ID.Length));
                             // Try to paint the sign using one of two versions of SignArtist
                             try
                             {
@@ -674,7 +677,19 @@ namespace Oxide.Plugins
                 _created = false;
             }
 
-            public bool CanUse(BasePlayer player) => Instance.permission.UserHasPermission(player.UserIDString, RequiredPermission);
+            public bool CanUse(BasePlayer player)
+            {
+                if (!Instance.permission.UserHasPermission(player.UserIDString, RequiredPermission)) return false;
+                if (Instance.configData.useNoEscape && Instance.NoEscape != null)
+                {
+                    if ((bool)Instance.NoEscape?.Call("IsBlocked", player))
+                    {
+                        Instance.Message(player.IPlayer, "blocked");
+                        return false;
+                    }
+                }
+                return true;
+            }
 
             public static PortalInfo Find(string ID) => Instance.portals.Find((p) => p.ID == ID);
 
@@ -848,8 +863,8 @@ namespace Oxide.Plugins
             public bool wipeOnNewSave = true;
             public bool defaultTwoWay = false;
             public bool playEffects = false;
+            public bool useNoEscape = false;
             public float defaultCountdown = 5f;
-
             public bool deploySpinner = true;
             public bool nameOnWheel = true;
             public bool spinEntrance = true;
