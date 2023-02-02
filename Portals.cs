@@ -9,11 +9,10 @@ using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Core.Libraries.Covalence;
 using Network;
-using Newtonsoft.Json;
 
 namespace Oxide.Plugins
 {
-    [Info("Portals", "LaserHydra/RFC1920", "2.2.3")]
+    [Info("Portals", "LaserHydra/RFC1920", "2.2.4")]
     [Description("Create portals and feel like you're in Star Trek")]
     class Portals : RustPlugin
     {
@@ -579,10 +578,10 @@ namespace Oxide.Plugins
                 var EffectInstance = new Effect();
                 EffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.up, Vector3.zero);
                 EffectInstance.pooledstringid = StringPool.Get(effect);
-                Net.sv.write.Start();
-                Net.sv.write.PacketID(Network.Message.Type.Effect);
-                EffectInstance.WriteToStream(Net.sv.write);
-                Net.sv.write.Send(new SendInfo(player.net.connection));
+                NetWrite writer = Net.sv.StartWrite();
+                writer.PacketID(Network.Message.Type.Effect);
+                EffectInstance.WriteToStream(writer);
+                writer.Send(new SendInfo(player.net.connection));
                 EffectInstance.Clear();
             }
 
@@ -793,7 +792,7 @@ namespace Oxide.Plugins
         {
             foreach(BasePlayer current in BasePlayer.activePlayerList)
             {
-                if(current.displayName.ToLower() == searchedPlayer.ToLower())
+                if(string.Equals(current.displayName, searchedPlayer, StringComparison.OrdinalIgnoreCase))
                 {
                     return current;
                 }
@@ -801,7 +800,7 @@ namespace Oxide.Plugins
 
             List<BasePlayer> foundPlayers =
                 (from current in BasePlayer.activePlayerList
-                 where current.displayName.ToLower().Contains(searchedPlayer.ToLower())
+                 where current.displayName.IndexOf(searchedPlayer, StringComparison.OrdinalIgnoreCase) >= 0
                  select current).ToList();
 
             switch(foundPlayers.Count)
